@@ -6,7 +6,7 @@
 #include "DHT.h"
 
 // Define variables
-#define DHTPIN 2
+#define DHTPIN 4
 #define DHTTYPE DHT11
 #define wifi_ssid "MacBart_2.4"
 #define wifi_password "Siepie1962!!!"
