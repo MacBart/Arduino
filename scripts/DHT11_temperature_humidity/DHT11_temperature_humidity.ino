@@ -1,110 +1,70 @@
-// Include libraries
 #include <ESP8266WiFi.h>
-#include <Wire.h>
 #include <PubSubClient.h>
-#include <WiFiClientSecure.h>
 #include "DHT.h"
 
 // Define variables
 #define DHTPIN 4
 #define DHTTYPE DHT11
-#define wifi_ssid "MacBart_2.4"
-#define wifi_password "Siepie1962!!!"
-#define mqtt_server "test.mosquitto.org"
-#define mqtt_port 8883
-#define mqtt_user "macbart"
-#define mqtt_password "Siepie1962!"
-#define fingerprint "28:70:6C:B8:7E:C1:94:5F:3D:EF:D6:6C:0A:F4:45:55:61:A0:C1:50"
+const char* ssid = "MacBart_2.4"; // Enter your WiFi name
+const char* password =  "Siepie1962!!!"; // Enter WiFi password
+const char* mqttServer = "www.macbart.com";
+const int mqttPort = 1883;
+const char* mqttUser = "macbart";
+const char* mqttPassword = "Siepie1962!";
 #define humidity_topic "macbart/sensor/hum_1"
 #define temperature_topic "macbart/sensor/temp_1"
-DHT dht(DHTPIN, DHTTYPE);
-//WiFiClient espClient;
-WiFiClientSecure secureClient;
-PubSubClient pubSubClient(secureClient);
 
+DHT dht(DHTPIN, DHTTYPE); 
+WiFiClient espClient;
+PubSubClient pubSubClient(espClient);
+ 
 void setup() {
   Serial.begin(115200);
   dht.begin();
-  setup_wifi();
-  pubSubClient.setServer(mqtt_server, mqtt_port);
-}
-
-void setup_wifi() {
-  delay(10);
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(wifi_ssid);
-  WiFi.begin(wifi_ssid, wifi_password);
+  WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print(".");
+    Serial.println("Connecting to WiFi..");
   }
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-
-  if (!secureClient.connect(mqtt_server, mqtt_port)) {
-    Serial.println("connection failed");
-    return;
-  }
-
-  if (secureClient.verify(fingerprint, mqtt_server)) {
-    Serial.println("certificate matches");
-  } else {
-    Serial.println("certificate doesn't match");
-  }
+  Serial.println("Connected to the WiFi network");
+  pubSubClient.setServer(mqttServer, mqttPort);
+  pubSubClient.setCallback(callback);
 }
 
 void reconnect() {
-  // Loop until we're reconnected
   while (!pubSubClient.connected()) {
-      Serial.print("Attempting MQTT connection...");
-    
-      // Generate pubSubClient name based on MAC address and last 8 bits of microsecond counter
-      String clientName;  
-      clientName += "macbart-";
-      uint8_t mac[6];
-      WiFi.macAddress(mac);
-      clientName += macToStr(mac);
-      clientName += "-";
-      clientName += String(micros() & 0xff, 16);
-      Serial.print("Connecting to ");
-      Serial.print(mqtt_server);
-      Serial.print(" as ");
-      Serial.println(clientName);
-      Serial.println(mqtt_user);
-      Serial.println(mqtt_password);
-
-    // Attempt to connect
-    if (pubSubClient.connect((char*) clientName.c_str()), mqtt_user, mqtt_password) {
-      Serial.println("connected:");
-      Serial.println(pubSubClient.connected());
+    Serial.println("Connecting to MQTT...");
+    if (pubSubClient.connect("ESP8266Client", mqttUser, mqttPassword )) {
+      Serial.println("connected");  
     } else {
-      Serial.print("failed, rc=");
+      Serial.print("failed with state ");
       Serial.print(pubSubClient.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(5000);
+      delay(2000);
     }
   }
 }
-
-
+ 
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived in topic: ");
+  Serial.println(topic);
+  Serial.print("Message:");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+  Serial.println("-----------------------");
+}
+ 
 void loop() {
-  
       if (!pubSubClient.connected()) {
         reconnect();
       }
       pubSubClient.loop();
-
       // Wait a few seconds between measurements.
       delay(1000);
-      
       // Reading sensor
       float h = dht.readHumidity();
       float t = dht.readTemperature();
-            
       // Check if any reads failed and exit early (to try again).
       if (isnan(h) || isnan(t)) {
         Serial.println("Failed to read from DHT sensor!");
