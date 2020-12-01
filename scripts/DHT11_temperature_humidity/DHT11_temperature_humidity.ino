@@ -1,23 +1,30 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include "DHT.h"
+#include "ESPDateTime.h"
+#include <ArduinoJson.h>
 
 // Define variables
 #define DHTPIN 4
 #define DHTTYPE DHT11
-const char* ssid = "MacBart_2.4"; // Enter your WiFi name
-const char* password =  "Siepie1962!!!"; // Enter WiFi password
+const char* ssid = "MacBart_2.4";
+const char* password =  "Siepie1962!!!";
 const char* mqttServer = "www.macbart.com";
 const int mqttPort = 1883;
 const char* mqttUser = "macbart";
 const char* mqttPassword = "Siepie1962!";
-#define humidity_topic "macbart/sensor/hum_1"
-#define temperature_topic "macbart/sensor/temp_1"
+const char* sensor_topic = "macbart/sensor";
+char buffer[256];
+float tmp_i = 99;
+float tmp_a = -99;
+float hum_i = 100;
+float hum_a = 0;
 
 DHT dht(DHTPIN, DHTTYPE); 
 WiFiClient espClient;
 PubSubClient pubSubClient(espClient);
- 
+StaticJsonDocument<256> jdoc;
+
 void setup() {
   Serial.begin(115200);
   dht.begin();
@@ -29,12 +36,22 @@ void setup() {
   Serial.println("Connected to the WiFi network");
   pubSubClient.setServer(mqttServer, mqttPort);
   pubSubClient.setCallback(callback);
+
+
+  // DateTime
+  DateTime.setServer("nl.pool.ntp.org");
+  DateTime.begin(15 * 1000);
+  DateTime.setTimeZone(8);
+  DateTime.begin();
+  if (!DateTime.isTimeValid()) {
+    Serial.println("Failed to get time from server.");
+  }
 }
 
 void reconnect() {
   while (!pubSubClient.connected()) {
     Serial.println("Connecting to MQTT...");
-    if (pubSubClient.connect("ESP8266Client", mqttUser, mqttPassword )) {
+    if (pubSubClient.connect("macbart-sensor-001", mqttUser, mqttPassword )) {
       Serial.println("connected");  
     } else {
       Serial.print("failed with state ");
@@ -60,37 +77,53 @@ void loop() {
         reconnect();
       }
       pubSubClient.loop();
-      // Wait a few seconds between measurements.
       delay(1000);
+      
       // Reading sensor
       float h = dht.readHumidity();
       float t = dht.readTemperature();
+      
       // Check if any reads failed and exit early (to try again).
       if (isnan(h) || isnan(t)) {
         Serial.println("Failed to read from DHT sensor!");
       return;
       }
+
+      // Set DateTime
+      time_t d = DateTime.now();
+      String dt = DateTime.toString();
       
-       // Temperature
-      Serial.print("Temperatuur:");
-      Serial.println(String(t).c_str());
-      Serial.println(temperature_topic);
-      pubSubClient.publish(temperature_topic, String(t).c_str(), true);
+      // Reset max / min
+//      if (%H == 0 && reset = false) {
+//        reset = true;  
+//      } elif (%H == 23 && reset = true {
+//        reset = false;
+//      }
 
-      // Humidity
-      Serial.print("Vochtigheid:");
-      Serial.println(String(h).c_str());
-      Serial.println(humidity_topic);
-      pubSubClient.publish(humidity_topic, String(h).c_str(), true);
-}
+      // Set max/min Temperatuur
+      if (t > tmp_a) {
+        tmp_a = t;
+      }
+      if (t < tmp_i) {
+        tmp_i = t;
+      }
+      String tmp = String(t).c_str();
+      String tmp_min = String(tmp_i).c_str();
+      String tmp_max = String(tmp_a).c_str();
 
-String macToStr(const uint8_t* mac)
-{
-  String result;
-  for (int i = 0; i < 6; ++i) {
-    result += String(mac[i], 16);
-    if (i < 5)
-      result += ':';
-  }
-  return result;
+      // Set max/min Vochtigheid
+      if (h > hum_a) {
+        hum_a = h;
+      }
+      if (h < hum_i) {
+        hum_i = h;
+      }
+      String hum = String(h).c_str();
+      String hum_min = String(hum_i).c_str();
+      String hum_max = String(hum_a).c_str();
+      
+      // Publish json
+      String json = "{\"DatumTijd\": " + dt + ", \"Temperatuur\": " + tmp + ", \"Temp_min\": " + tmp_min + ", \"Temp_max\": " + tmp_max + ", \"Vochtigheid\": " + hum + ", \"Hum_min\": " + hum_min + ", \"Hum_max\": " + hum_max + "}";
+      json.toCharArray(buffer, (json.length() + 1));
+      pubSubClient.publish(sensor_topic, buffer, true);
 }
