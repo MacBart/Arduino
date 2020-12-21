@@ -1,11 +1,9 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include "DHT.h"
-#include "ESPDateTime.h"
 #include <ArduinoJson.h>
+#include <Time.h>
 
-// Define variables
-#define DHTPIN 4
 #define DHTTYPE DHT11
 const char* ssid = "MacBart_2.4";
 const char* password =  "Siepie1962!!!";
@@ -14,16 +12,18 @@ const int mqttPort = 1883;
 const char* mqttUser = "macbart";
 const char* mqttPassword = "Siepie1962!";
 const char* sensor_topic = "macbart/sensor";
-char buffer[256];
-float tmp_i = 99;
-float tmp_a = -99;
-float hum_i = 100;
-float hum_a = 0;
+const char* reset_topic = "macbart/reset";
+
+float tmp_min = 99;
+float tmp_max = -99;
+float tmp = 0;
+float hum_min = 100;
+float hum_max = 0;
+float hum = 0;
 
 DHT dht(DHTPIN, DHTTYPE); 
 WiFiClient espClient;
 PubSubClient pubSubClient(espClient);
-StaticJsonDocument<256> jdoc;
 
 void setup() {
   Serial.begin(115200);
@@ -34,18 +34,10 @@ void setup() {
     Serial.println("Connecting to WiFi..");
   }
   Serial.println("Connected to the WiFi network");
+  StaticJsonDocument<200> doc;
   pubSubClient.setServer(mqttServer, mqttPort);
   pubSubClient.setCallback(callback);
-
-
-  // DateTime
-  DateTime.setServer("nl.pool.ntp.org");
-  DateTime.begin(15 * 1000);
-  DateTime.setTimeZone(8);
-  DateTime.begin();
-  if (!DateTime.isTimeValid()) {
-    Serial.println("Failed to get time from server.");
-  }
+  pubSubClient.subscribe(reset_topic);
 }
 
 void reconnect() {
@@ -62,68 +54,53 @@ void reconnect() {
 }
  
 void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived in topic: ");
-  Serial.println(topic);
-  Serial.print("Message:");
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
-  }
-  Serial.println();
-  Serial.println("-----------------------");
+  
 }
  
 void loop() {
       if (!pubSubClient.connected()) {
         reconnect();
       }
-      pubSubClient.loop();
-      delay(1000);
-      
+
       // Reading sensor
-      float h = dht.readHumidity();
-      float t = dht.readTemperature();
+      hum = dht.readHumidity();
+      tmp = dht.readTemperature();
       
       // Check if any reads failed and exit early (to try again).
-      if (isnan(h) || isnan(t)) {
+      if (isnan(hum) || isnan(tmp)) {
         Serial.println("Failed to read from DHT sensor!");
       return;
       }
 
-      // Set DateTime
-      time_t d = DateTime.now();
-      String dt = DateTime.toString();
-      
-      // Reset max / min
-//      if (%H == 0 && reset = false) {
-//        reset = true;  
-//      } elif (%H == 23 && reset = true {
-//        reset = false;
-//      }
-
       // Set max/min Temperatuur
-      if (t > tmp_a) {
-        tmp_a = t;
+      if (tmp > tmp_max) {
+        tmp_max = tmp;
       }
-      if (t < tmp_i) {
-        tmp_i = t;
+      if (tmp < tmp_min) {
+        tmp_min = tmp;
       }
-      String tmp = String(t).c_str();
-      String tmp_min = String(tmp_i).c_str();
-      String tmp_max = String(tmp_a).c_str();
 
       // Set max/min Vochtigheid
-      if (h > hum_a) {
-        hum_a = h;
+      if (hum > hum_max) {
+        hum_max = hum;
       }
-      if (h < hum_i) {
-        hum_i = h;
+      if (hum < hum_min) {
+        hum_min = hum;
       }
-      String hum = String(h).c_str();
-      String hum_min = String(hum_i).c_str();
-      String hum_max = String(hum_a).c_str();
+
+      // create json
+      const int capacity = JSON_OBJECT_SIZE(512);
+      StaticJsonDocument<capacity> doc;
+      doc["Temperatuur"] = tmp;
+      doc["Temp_min"] = tmp_min;
+      doc["Temp_max"] = tmp_max;
+      doc["Vochtigheid"] = hum;
+      doc["Hum_min"] = hum_min;
+      doc["Hum_max"] = hum_max;
+      char payload[capacity + 1];
+      serializeJson(doc,payload);
       
       // Publish json
-      String json = "{\"DatumTijd\": " + dt + ", \"Temperatuur\": " + tmp + ", \"Temp_min\": " + tmp_min + ", \"Temp_max\": " + tmp_max + ", \"Vochtigheid\": " + hum + ", \"Hum_min\": " + hum_min + ", \"Hum_max\": " + hum_max + "}";
-      json.toCharArray(buffer, (json.length() + 1));
-      pubSubClient.publish(sensor_topic, buffer, true);
+      pubSubClient.publish(sensor_topic, payload, true);
+      delay(1000);
 }
